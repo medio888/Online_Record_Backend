@@ -77,3 +77,9 @@ class QueueTicketSerializer(serializers.ModelSerializer):
                 date=today,
                 number=last + 1,
             )
+
+
+class QueueStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QueueTicket
+        fields = ["status"]
