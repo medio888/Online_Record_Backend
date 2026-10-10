@@ -12,6 +12,7 @@ def api_root(request, format=None):
         "levels": "/api/questions/levels/",
         "appeals": "/api/questions/appeals/",
         "register": "/api/register/",
+        "queue": "/api/queue/",
         "swagger": "/api/docs/",
         "admin": "/admin/",
     })

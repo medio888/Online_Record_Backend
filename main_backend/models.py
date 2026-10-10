@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class Student(models.Model):
@@ -27,3 +28,33 @@ class Student(models.Model):
 
     def __str__(self):
         return f"{self.last_name} {self.first_name}"
+
+
+class QueueTicket(models.Model):
+    STATUSES = [
+        ("waiting", "Ждёт"),
+        ("called", "Вызван"),
+        ("done", "Принят"),
+        ("cancelled", "Отменён"),
+    ]
+
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="tickets"
+    )
+    direction = models.CharField(max_length=30, choices=Student.DIRECTIONS)
+    number = models.PositiveIntegerField()
+    date = models.DateField(default=timezone.localdate)
+    status = models.CharField(max_length=10, choices=STATUSES, default="waiting")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["date", "number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["direction", "date", "number"],
+                name="unique_ticket_number",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.direction} №{self.number} ({self.student})"
