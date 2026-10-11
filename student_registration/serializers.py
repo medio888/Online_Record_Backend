@@ -8,10 +8,11 @@ from rest_framework import serializers
 from .models import Student, QueueTicket
 
 NAME_RE = re.compile(r"^[^\W\d_]+(?:[ \-'][^\W\d_]+)*$")
-PHONE_RE = re.compile(r"^\+?\d{9,15}$")
 
 
 class StudentSerializer(serializers.ModelSerializer):
+    phone = serializers.CharField(max_length=20)
+
     class Meta:
         model = Student
         fields = [
@@ -34,12 +35,16 @@ class StudentSerializer(serializers.ModelSerializer):
         return self._check_name(value)
 
     def validate_phone(self, value):
-        cleaned = re.sub(r"[\s\-()]", "", value)
-        if not PHONE_RE.match(cleaned):
+        digits = re.sub(r"\D", "", value)
+        if digits.startswith("996"):
+            digits = digits[3:]
+        elif digits.startswith("0"):
+            digits = digits[1:]
+        if len(digits) != 9:
             raise serializers.ValidationError(
-                "Введите номер в международном формате, например +996555123456."
+                "Номер должен быть в формате +996XXXXXXXXX (9 цифр после 996)."
             )
-        return cleaned
+        return "+996" + digits
 
     def validate_course(self, value):
         if not 1 <= value <= 3:
