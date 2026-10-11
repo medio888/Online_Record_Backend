@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'questions',
     'rest_framework',
     'drf_spectacular',
+    'booking',
 ]
 
 
