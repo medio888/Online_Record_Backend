@@ -11,6 +11,8 @@ NAME_RE = re.compile(r"^[^\W\d_]+(?:[ \-'][^\W\d_]+)*$")
 
 
 class StudentSerializer(serializers.ModelSerializer):
+    phone = serializers.CharField(max_length=20)
+
     class Meta:
         model = Student
         fields = [
