@@ -37,7 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'main_backend',
+    'student_registration',
     'questions',
     'rest_framework',
     'drf_spectacular',

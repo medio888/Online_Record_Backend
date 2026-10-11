@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('main_backend', '0003_alter_student_course'),
+        ('student_registration', '0003_alter_student_course'),
     ]
 
     operations = [
@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 ('date', models.DateField(default=django.utils.timezone.localdate)),
                 ('status', models.CharField(choices=[('waiting', 'Ждёт'), ('called', 'Вызван'), ('done', 'Принят'), ('cancelled', 'Отменён')], default='waiting', max_length=10)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('student', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='tickets', to='main_backend.student')),
+                ('student', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='tickets', to='student_registration.student')),
             ],
             options={
                 'ordering': ['date', 'number'],
