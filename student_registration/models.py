@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
@@ -23,6 +24,14 @@ class Student(models.Model):
     first_name = models.CharField("Имя", max_length=50)
     last_name = models.CharField("Фамилия", max_length=50)
     
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="student_profile",
+        verbose_name="Учётная запись",
+    )
     phone = models.CharField(
         "Телефон",
         max_length=13,
