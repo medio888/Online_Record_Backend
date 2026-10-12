@@ -22,11 +22,18 @@ class Student(models.Model):
 
     first_name = models.CharField("Имя", max_length=50)
     last_name = models.CharField("Фамилия", max_length=50)
+    
     phone = models.CharField(
         "Телефон",
         max_length=13,
-        validators=[RegexValidator(r"^\+996\d{9}$", "Формат: +996XXXXXXXXX (9 цифр после 996).")],
+        validators=[
+            RegexValidator(
+                regex=r"^\+996\d{9}$",
+                message="Формат: +996XXXXXXXXX (9 цифр после 996).",
+            )
+        ],
     )
+
     direction = models.CharField("Направление", max_length=30, choices=DIRECTIONS)
     course = models.PositiveSmallIntegerField("Курс", choices=COURSES)
     created_at = models.DateTimeField(auto_now_add=True)
