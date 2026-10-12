@@ -50,14 +50,20 @@ class BookingTicketSerializer(serializers.ModelSerializer):
     official = serializers.CharField(source="get_level_display", read_only=True)
     time = serializers.TimeField(format="%H:%M")
     end_time = serializers.SerializerMethodField()
+    ahead = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
         fields = [
             "code", "student_name", "question_text", "official",
-            "date", "time", "end_time", "duration", "status", "created_at",
+            "date", "time", "end_time", "duration", "ahead", "status", "created_at",
         ]
 
     def get_end_time(self, obj):
         start = datetime.combine(obj.date, obj.time)
         return (start + timedelta(minutes=obj.duration)).strftime("%H:%M")
+
+    def get_ahead(self, obj):
+        return Booking.objects.filter(
+            level=obj.level, date=obj.date, status="active", time__lt=obj.time
+        ).count()
