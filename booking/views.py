@@ -5,6 +5,10 @@ from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework.permissions import IsAuthenticated
+from django.db import transaction
+from student_registration.models import Student
+
 from questions.models import Question
 
 from .models import Booking
@@ -80,3 +84,47 @@ class TicketView(generics.RetrieveAPIView):
     queryset = Booking.objects.all()
     serializer_class = BookingTicketSerializer
     lookup_field = "code"
+
+
+
+class BookingCancelView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        # Определяем студента по аккаунту, а не по student_id из запроса.
+        try:
+            student = request.user.student_profile
+        except Student.DoesNotExist:
+            return Response(
+                {"detail": "У аккаунта нет профиля студента."},
+                status=403,
+            )
+
+        with transaction.atomic():
+            # Ищем запись только среди записей этого студента.
+            # Чужая запись будет выглядеть как несуществующая.
+            booking = get_object_or_404(
+                Booking.objects.select_for_update(),
+                pk=pk,
+                student=student,
+            )
+
+            if booking.status == "cancelled":
+                return Response({
+                    "detail": "Запись уже отменена.",
+                    "booking": BookingTicketSerializer(booking).data,
+                }, status=200)
+
+            if booking.status != "active":
+                return Response(
+                    {"detail": "Можно отменить только активную запись."},
+                    status=400,
+                )
+
+            booking.status = "cancelled"
+            booking.save(update_fields=["status"])
+
+        return Response({
+            "detail": "Запись отменена.",
+            "booking": BookingTicketSerializer(booking).data,
+        }, status=200)
