@@ -7,7 +7,8 @@ from rest_framework import serializers
 
 from .models import Student, QueueTicket
 
-NAME_RE = re.compile(r"^[^\W\d_]+(?:[ \-'][^\W\d_]+)*$")
+
+NAME_RE = re.compile(r"^[^\W\d_]+(?:[ -][^\W\d_]+)*$")
 
 
 class StudentSerializer(serializers.ModelSerializer):
