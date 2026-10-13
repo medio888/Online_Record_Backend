@@ -70,7 +70,8 @@ class QueueCallNextView(APIView):
             )
 
         ticket.status = "called"
-        ticket.save(update_fields=["status"])
+        ticket.called_at = timezone.now()
+        ticket.save(update_fields=["status", "called_at"])
 
         return Response(QueueTicketSerializer(ticket).data)
 

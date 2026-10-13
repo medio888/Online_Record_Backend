@@ -67,6 +67,22 @@ class QueueTicket(models.Model):
     date = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=10, choices=STATUSES, default="waiting")
     created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    called_at = models.DateTimeField(
+        "Время вызова",
+        null=True,
+        blank=True,
+    )
+    completed_at = models.DateTimeField(
+        "Время завершения",
+        null=True,
+        blank=True,
+    )
+    cancelled_at = models.DateTimeField(
+        "Время отмены",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ["date", "number"]
