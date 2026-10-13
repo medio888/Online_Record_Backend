@@ -1,10 +1,10 @@
-
 import re
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
+
 from rest_framework import serializers
 
 from .models import Student, QueueTicket
@@ -16,8 +16,14 @@ NAME_RE = re.compile(r"^[^\W\d_]+(?:[ -][^\W\d_]+)*$")
 
 
 class StudentSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(write_only=True, max_length=150)
-    password = serializers.CharField(write_only=True, min_length=8)
+    username = serializers.CharField(
+        write_only=True,
+        max_length=150,
+    )
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+    )
     phone = serializers.CharField(max_length=20)
 
     class Meta:
@@ -33,7 +39,10 @@ class StudentSerializer(serializers.ModelSerializer):
             "course",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = [
+            "id",
+            "created_at",
+        ]
 
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():
@@ -44,10 +53,12 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def _check_name(self, value):
         value = value.strip()
+
         if not NAME_RE.fullmatch(value):
             raise serializers.ValidationError(
                 "Допустимы только буквы, пробел и дефис."
             )
+
         return value
 
     def validate_first_name(self, value):
@@ -76,6 +87,7 @@ class StudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Курс должен быть от 1 до 3."
             )
+
         return value
 
     @transaction.atomic
@@ -113,6 +125,9 @@ class QueueTicketSerializer(serializers.ModelSerializer):
             "date",
             "status",
             "created_at",
+            "called_at",
+            "completed_at",
+            "cancelled_at",
         ]
         read_only_fields = [
             "id",
@@ -122,6 +137,9 @@ class QueueTicketSerializer(serializers.ModelSerializer):
             "date",
             "status",
             "created_at",
+            "called_at",
+            "completed_at",
+            "cancelled_at",
         ]
 
     def validate(self, attrs):
@@ -172,4 +190,50 @@ class QueueTicketSerializer(serializers.ModelSerializer):
 class QueueStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = QueueTicket
-        fields = ["status"]
+        fields = [
+            "status",
+            "called_at",
+            "completed_at",
+            "cancelled_at",
+        ]
+        read_only_fields = [
+            "called_at",
+            "completed_at",
+            "cancelled_at",
+        ]
+
+    def validate_status(self, new_status):
+        ticket = self.instance
+
+        if ticket is None:
+            return new_status
+
+        allowed_transitions = {
+            "waiting": {"cancelled"},
+            "called": {"done", "cancelled"},
+            "done": set(),
+            "cancelled": set(),
+        }
+
+        if new_status not in allowed_transitions[ticket.status]:
+            raise serializers.ValidationError(
+                f"Недопустимый переход: "
+                f"{ticket.status} -> {new_status}."
+            )
+
+        return new_status
+
+    def update(self, instance, validated_data):
+        new_status = validated_data["status"]
+        now = timezone.now()
+
+        instance.status = new_status
+
+        if new_status == "done":
+            instance.completed_at = now
+
+        elif new_status == "cancelled":
+            instance.cancelled_at = now
+
+        instance.save()
+        return instance
