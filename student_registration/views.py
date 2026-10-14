@@ -9,6 +9,7 @@ from .models import Student, QueueTicket
 from .serializers import (
     StudentSerializer,
     QueueTicketSerializer,
+    QueuePublicTicketSerializer,
     QueueStatusSerializer,
 )
 
@@ -25,9 +26,9 @@ class QueueJoinView(generics.CreateAPIView):
 
 
 class QueueListView(generics.ListAPIView):
-    serializer_class = QueueTicketSerializer
+    serializer_class = QueuePublicTicketSerializer
     permission_classes = [AllowAny]
-
+    
     def get_queryset(self):
         qs = QueueTicket.objects.filter(
             date=timezone.localdate(),
