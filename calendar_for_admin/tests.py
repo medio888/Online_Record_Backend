@@ -9,7 +9,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import ScheduleRule, Appointment
-
+from django.db import IntegrityError, transaction
+from django.test import TransactionTestCase
 
 User = get_user_model()
 
@@ -115,3 +116,77 @@ class CalendarAPITests(APITestCase):
             ).count(),
             1,
         )
+
+
+class CalendarOverlapConstraintTests(TransactionTestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="overlap_calendar_admin",
+            password="Test-Password-123!",
+            is_staff=True,
+        )
+        self.visitor1 = "Первый посетитель"
+        self.visitor2 = "Второй посетитель"
+
+        self.appointment_date = timezone.localdate() + timedelta(days=1)
+        while self.appointment_date.weekday() >= 5:
+            self.appointment_date += timedelta(days=1)
+
+        self.rule = ScheduleRule.objects.create(
+            administrator=self.admin,
+            weekday=self.appointment_date.weekday(),
+            start_time=time(9, 0),
+            end_time=time(10, 0),
+            slot_duration_minutes=30,
+            is_active=True,
+        )
+
+    def test_overlapping_appointments_are_rejected_by_database(self):
+        Appointment.objects.create(
+            schedule_rule=self.rule,
+            administrator=self.admin,
+            appointment_date=self.appointment_date,
+            start_time=time(9, 0),
+            end_time=time(9, 30),
+            visitor_name=self.visitor1,
+            visitor_phone="+996555123451",
+            status="booked",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Appointment.objects.create(
+                    schedule_rule=self.rule,
+                    administrator=self.admin,
+                    appointment_date=self.appointment_date,
+                    start_time=time(9, 15),
+                    end_time=time(9, 45),
+                    visitor_name=self.visitor2,
+                    visitor_phone="+996555123452",
+                    status="booked",
+                )
+
+    def test_adjacent_appointments_are_allowed(self):
+        Appointment.objects.create(
+            schedule_rule=self.rule,
+            administrator=self.admin,
+            appointment_date=self.appointment_date,
+            start_time=time(9, 0),
+            end_time=time(9, 30),
+            visitor_name=self.visitor1,
+            visitor_phone="+996555123451",
+            status="booked",
+        )
+
+        second = Appointment.objects.create(
+            schedule_rule=self.rule,
+            administrator=self.admin,
+            appointment_date=self.appointment_date,
+            start_time=time(9, 30),
+            end_time=time(10, 0),
+            visitor_name=self.visitor2,
+            visitor_phone="+996555123452",
+            status="booked",
+        )
+
+        self.assertEqual(second.start_time, time(9, 30))

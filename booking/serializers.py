@@ -59,15 +59,69 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        # student передаётся сервером через serializer.save(student=...).
-        validated_data["level"] = validated_data["question"].level
+        student = validated_data["student"]
+        question = validated_data["question"]
+        level = question.level
+        day = validated_data["date"]
+        start_time = validated_data["time"]
+        duration = validated_data["duration"]
+
+        start_min = start_time.hour * 60 + start_time.minute
+        end_min = start_min + duration
 
         try:
             with transaction.atomic():
+                # Блокируем профиль: один студент не сможет
+                # одновременно создать две активные записи.
+                student.__class__.objects.select_for_update().get(
+                    pk=student.pk
+                )
+
+                # Все бронирования одного уровня используют
+                # одну и ту же блокировку.
+                lock_question = (
+                    question.__class__.objects
+                    .select_for_update()
+                    .filter(level=level)
+                    .order_by("pk")
+                    .first()
+                )
+
+                if lock_question is None:
+                    raise serializers.ValidationError(
+                        "Для этого уровня нет доступных вопросов."
+                    )
+
+                # Проверяем актуальность вопроса уже под блокировкой.
+                question.refresh_from_db()
+
+                if not question.is_active:
+                    raise serializers.ValidationError(
+                        {"question": "Этот вопрос недоступен."}
+                    )
+
+                # Повторно проверяем активную запись студента.
+                if student.bookings.filter(
+                    status="active",
+                    date__gte=timezone.localdate(),
+                ).exists():
+                    raise serializers.ValidationError(
+                        "У студента уже есть активная запись."
+                    )
+
+                # Повторно проверяем доступность времени.
+                if start_time not in free_slots(level, day, duration):
+                    raise serializers.ValidationError(
+                        "Это время уже занято или недоступно."
+                    )
+
+                validated_data["level"] = level
+
                 return Booking.objects.create(**validated_data)
+
         except IntegrityError:
             raise serializers.ValidationError(
-                "Это время только что заняли."
+                "Это время только что заняли. Выберите другое."
             )
 
 
