@@ -16,14 +16,8 @@ NAME_RE = re.compile(r"^[^\W\d_]+(?:[ -][^\W\d_]+)*$")
 
 
 class StudentSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(
-        write_only=True,
-        max_length=150,
-    )
-    password = serializers.CharField(
-        write_only=True,
-        min_length=8,
-    )
+    username = serializers.CharField(write_only=True, max_length=150)
+    password = serializers.CharField(write_only=True, min_length=8)
     phone = serializers.CharField(max_length=20)
 
     class Meta:
@@ -39,10 +33,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "course",
             "created_at",
         ]
-        read_only_fields = [
-            "id",
-            "created_at",
-        ]
+        read_only_fields = ["id", "created_at"]
 
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():
@@ -53,12 +44,10 @@ class StudentSerializer(serializers.ModelSerializer):
 
     def _check_name(self, value):
         value = value.strip()
-
         if not NAME_RE.fullmatch(value):
             raise serializers.ValidationError(
                 "Допустимы только буквы, пробел и дефис."
             )
-
         return value
 
     def validate_first_name(self, value):
@@ -87,7 +76,6 @@ class StudentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Курс должен быть от 1 до 3."
             )
-
         return value
 
     @transaction.atomic
@@ -100,15 +88,23 @@ class StudentSerializer(serializers.ModelSerializer):
             password=password,
         )
 
-        student = Student.objects.create(
+        return Student.objects.create(
             user=user,
             **validated_data,
         )
 
-        return student
+
+class QueuePublicTicketSerializer(serializers.ModelSerializer):
+    """Только безопасные поля для публичного экрана очереди."""
+
+    class Meta:
+        model = QueueTicket
+        fields = ["number", "direction", "status"]
 
 
 class QueueTicketSerializer(serializers.ModelSerializer):
+    """Сериализатор талона для внутренних операций очереди."""
+
     student_name = serializers.CharField(
         source="student",
         read_only=True,
@@ -132,6 +128,7 @@ class QueueTicketSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "student",
+            "student_name",
             "direction",
             "number",
             "date",
@@ -231,7 +228,6 @@ class QueueStatusSerializer(serializers.ModelSerializer):
 
         if new_status == "done":
             instance.completed_at = now
-
         elif new_status == "cancelled":
             instance.cancelled_at = now
 

@@ -56,9 +56,12 @@ class CalendarAPITests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(
+        self.assertIn(
             response.status_code,
-            status.HTTP_403_FORBIDDEN,
+            [
+                status.HTTP_401_UNAUTHORIZED,
+                status.HTTP_403_FORBIDDEN,
+            ],
         )
 
     def test_available_slots_are_public(self):

@@ -102,10 +102,31 @@ class BookingCreateView(generics.CreateAPIView):
 
 
 
+
 class TicketView(generics.RetrieveAPIView):
-    queryset = Booking.objects.all()
     serializer_class = BookingTicketSerializer
     lookup_field = "code"
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Booking.objects.select_related(
+            "student",
+            "question",
+        )
+
+        # Сотрудники могут просматривать записи
+        # в рамках своих полномочий.
+        if self.request.user.is_staff:
+            return queryset
+
+        # Обычный пользователь видит только свои записи.
+        try:
+            student = self.request.user.student_profile
+        except Student.DoesNotExist:
+            return queryset.none()
+
+        return queryset.filter(student=student)
+
 
 
 
