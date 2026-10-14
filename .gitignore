@@ -1,13 +1,17 @@
+
+
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 
-# Virtual environment
+# Virtual environments
 venv/
 .venv/
 
-# Environment variables
+# Environment variables and secrets
 .env
+.env.*
+!.env.example
 
 # Django
 db.sqlite3
@@ -20,7 +24,3 @@ db.sqlite3
 # OS
 .DS_Store
 Thumbs.db
-__pycache__/
-*.pyc
-db.sqlite3
-.venv/
