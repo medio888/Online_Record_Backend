@@ -69,15 +69,37 @@ class SlotsView(APIView):
         })
 
 
+
 class BookingCreateView(generics.CreateAPIView):
     queryset = Booking.objects.all()
     serializer_class = BookingCreateSerializer
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
+        # Получаем профиль студента из авторизованного аккаунта.
+        try:
+            student = request.user.student_profile
+        except Student.DoesNotExist:
+            return Response(
+                {"detail": "У аккаунта нет профиля студента."},
+                status=403,
+            )
+
         serializer = self.get_serializer(data=request.data)
+
+        # Передаём профиль сервером для проверки активных записей.
+        serializer.context["student"] = student
+
         serializer.is_valid(raise_exception=True)
-        booking = serializer.save()
-        return Response(BookingTicketSerializer(booking).data, status=201)
+
+        # Владелец записи назначается только сервером.
+        booking = serializer.save(student=student)
+
+        return Response(
+            BookingTicketSerializer(booking).data,
+            status=201,
+        )
+
 
 
 class TicketView(generics.RetrieveAPIView):
