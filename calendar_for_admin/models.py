@@ -110,6 +110,13 @@ class Appointment(models.Model):
         auto_now_add=True,
         verbose_name="Дата бронирования",
     )
+    
+    administrator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="or_appointments",
+        editable=False,
+    )
 
     class Meta:
         ordering = ["appointment_date", "start_time"]

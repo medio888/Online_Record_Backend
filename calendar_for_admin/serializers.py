@@ -6,6 +6,9 @@ from rest_framework import serializers
 
 from .models import ScheduleRule, Appointment
 
+from django.db import IntegrityError, transaction
+from django.contrib.auth import get_user_model
+
 
 class ScheduleRuleSerializer(serializers.ModelSerializer):
     administrator = serializers.PrimaryKeyRelatedField(
@@ -180,7 +183,7 @@ class ScheduleRuleSerializer(serializers.ModelSerializer):
 
 class AppointmentSerializer(serializers.ModelSerializer):
     administrator = serializers.IntegerField(
-        source="schedule_rule.administrator_id",
+        source="administrator_id",
         read_only=True,
     )
 
@@ -226,7 +229,63 @@ class AppointmentSerializer(serializers.ModelSerializer):
             )
 
         return value
+    
+    
+    def create(self, validated_data):
+        rule = validated_data["schedule_rule"]
+        appointment_date = validated_data["appointment_date"]
+        start_time = validated_data["start_time"]
+        end_time = validated_data["end_time"]
 
+        User = get_user_model()
+
+        try:
+            with transaction.atomic():
+                # Все бронирования одного администратора
+                # проходят через одну блокировку.
+                administrator = (
+                    User.objects.select_for_update()
+                    .get(pk=rule.administrator_id)
+                )
+
+                # Повторно читаем правило после получения блокировки.
+                rule.refresh_from_db()
+
+                if not rule.is_active:
+                    raise serializers.ValidationError({
+                        "schedule_rule": "Это расписание неактивно."
+                    })
+
+                # Проверяем пересечения повторно уже внутри транзакции.
+                conflicts = Appointment.objects.filter(
+                    administrator_id=administrator.pk,
+                    appointment_date=appointment_date,
+                    status="booked",
+                    start_time__lt=end_time,
+                    end_time__gt=start_time,
+                )
+
+                if conflicts.exists():
+                    raise serializers.ValidationError({
+                        "start_time": (
+                            "Это время уже занято. "
+                            "Выберите другой сеанс."
+                        )
+                    })
+
+                validated_data["administrator"] = administrator
+
+                return super().create(validated_data)
+
+        except IntegrityError:
+            raise serializers.ValidationError({
+                "start_time": (
+                    "Это время только что заняли. "
+                    "Обновите список доступных сеансов."
+                )
+            })
+
+    
     def validate(self, attrs):
         rule = attrs["schedule_rule"]
         appointment_date = attrs["appointment_date"]
