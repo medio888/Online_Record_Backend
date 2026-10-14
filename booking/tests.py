@@ -19,6 +19,7 @@ from django.db import close_old_connections
 from rest_framework.test import APIClient
 from rest_framework import status
 from django.urls import reverse
+from rest_framework.test import APIClient, APITestCase
 
 User = get_user_model()
 
@@ -309,3 +310,288 @@ class ParallelBookingAPITests(TransactionTestCase):
             1,
         )
 
+
+class BookingSecurityAPITests(APITestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user1 = User.objects.create_user(
+            username="security_student_1",
+            password="Test-Password-123!",
+        )
+        cls.user2 = User.objects.create_user(
+            username="security_student_2",
+            password="Test-Password-456!",
+        )
+        cls.user_without_profile = User.objects.create_user(
+            username="security_no_profile",
+            password="Test-Password-789!",
+        )
+
+        cls.student1 = Student.objects.create(
+            user=cls.user1,
+            first_name="Первый",
+            last_name="Студент",
+            phone="+996555123461",
+            direction="it",
+            course=1,
+        )
+        cls.student2 = Student.objects.create(
+            user=cls.user2,
+            first_name="Второй",
+            last_name="Студент",
+            phone="+996555123462",
+            direction="it",
+            course=1,
+        )
+
+        cls.category = QuestionCategory.objects.create(
+            title="Проверка безопасности записи",
+        )
+        cls.question = Question.objects.create(
+            category=cls.category,
+            text="Проверка записи",
+            level=Question.Level.DEAN,
+            is_active=True,
+        )
+
+    def setUp(self):
+        self.booking_date = timezone.localdate() + timedelta(days=1)
+
+        while self.booking_date.weekday() >= 5:
+            self.booking_date += timedelta(days=1)
+
+    def create_booking(self, student, booking_time=time(10, 0)):
+        return Booking.objects.create(
+            student=student,
+            question=self.question,
+            level=self.question.level,
+            date=self.booking_date,
+            time=booking_time,
+            duration=10,
+            status="active",
+        )
+
+    def test_anonymous_user_cannot_create_booking(self):
+        response = self.client.post(
+            reverse("booking-create"),
+            {
+                "question": self.question.pk,
+                "date": self.booking_date.isoformat(),
+                "time": "10:00",
+                "duration": 10,
+            },
+            format="json",
+        )
+
+        self.assertIn(
+            response.status_code,
+            [
+                status.HTTP_401_UNAUTHORIZED,
+                status.HTTP_403_FORBIDDEN,
+            ],
+        )
+
+    def test_user_without_student_profile_cannot_book(self):
+        self.client.force_authenticate(
+            user=self.user_without_profile
+        )
+
+        response = self.client.post(
+            reverse("booking-create"),
+            {
+                "question": self.question.pk,
+                "date": self.booking_date.isoformat(),
+                "time": "10:00",
+                "duration": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertFalse(
+            Booking.objects.filter(
+                date=self.booking_date,
+                time=time(10, 0),
+                status="active",
+            ).exists()
+        )
+
+    def test_student_cannot_create_second_active_booking(self):
+        self.create_booking(self.student1)
+
+        self.client.force_authenticate(user=self.user1)
+
+        response = self.client.post(
+            reverse("booking-create"),
+            {
+                "question": self.question.pk,
+                "date": self.booking_date.isoformat(),
+                "time": "10:30",
+                "duration": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            Booking.objects.filter(
+                student=self.student1,
+                status="active",
+            ).count(),
+            1,
+        )
+
+    def test_student_cannot_cancel_another_students_booking(self):
+        booking = self.create_booking(self.student1)
+
+        self.client.force_authenticate(user=self.user2)
+
+        response = self.client.post(
+            reverse(
+                "booking-cancel",
+                kwargs={"pk": booking.pk},
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, "active")
+
+    def test_student_cannot_view_another_students_ticket(self):
+        booking = self.create_booking(self.student1)
+
+        self.client.force_authenticate(user=self.user2)
+
+        response = self.client.get(
+            reverse(
+                "booking-ticket",
+                kwargs={"code": booking.code},
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_student_can_cancel_own_booking(self):
+        booking = self.create_booking(self.student1)
+
+        self.client.force_authenticate(user=self.user1)
+
+        response = self.client.post(
+            reverse(
+                "booking-cancel",
+                kwargs={"pk": booking.pk},
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, "cancelled")
+
+    def test_cancelled_booking_can_be_booked_again(self):
+        booking = self.create_booking(self.student1)
+
+        self.client.force_authenticate(user=self.user1)
+
+        cancel_response = self.client.post(
+            reverse(
+                "booking-cancel",
+                kwargs={"pk": booking.pk},
+            )
+        )
+
+        self.assertEqual(
+            cancel_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        create_response = self.client.post(
+            reverse("booking-create"),
+            {
+                "question": self.question.pk,
+                "date": self.booking_date.isoformat(),
+                "time": "10:00",
+                "duration": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            create_response.status_code,
+            status.HTTP_201_CREATED,
+            msg=str(create_response.data),
+        )
+
+        self.assertEqual(
+            Booking.objects.filter(
+                student=self.student1,
+                status="active",
+            ).count(),
+            1,
+        )
+
+
+    def test_slots_reject_invalid_date_format(self):
+        self.client.force_authenticate(user=self.user1)
+
+        response = self.client.get(
+            reverse("booking-slots"),
+            {
+                "question": self.question.pk,
+                "date": "not-a-date",
+                "duration": 10,
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+            msg=str(response.data),
+        )
+
+    def test_booking_on_past_date_is_rejected(self):
+        past_date = timezone.localdate() - timedelta(days=1)
+
+        self.client.force_authenticate(user=self.user1)
+
+        response = self.client.post(
+            reverse("booking-create"),
+            {
+                "question": self.question.pk,
+                "date": past_date.isoformat(),
+                "time": "10:00",
+                "duration": 10,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertFalse(
+            Booking.objects.filter(
+                student=self.student1,
+                date=past_date,
+                status="active",
+            ).exists()
+        )

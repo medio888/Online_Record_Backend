@@ -7,6 +7,7 @@ from .views import (
     QuestionLevelListView,
     AppealListCreateView,
     AppealDetailView,
+    AppealStatusUpdateView,
 )
 
 urlpatterns = [
@@ -34,5 +35,10 @@ urlpatterns = [
         "appeals/<int:pk>/",
         AppealDetailView.as_view(),
         name="appeal-detail",
+    ),
+    path(
+        "appeals/<int:pk>/status/",
+        AppealStatusUpdateView.as_view(),
+        name="appeal-status-update",
     ),
 ]
