@@ -23,6 +23,10 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         # Студент определяется сервером, а не клиентом.
         student = self.context.get("student")
         if student is None:
+            if data["date"] < timezone.localdate():
+                raise serializers.ValidationError({
+                    "date": "Нельзя записаться на прошедшую дату."
+                })
             raise serializers.ValidationError(
                 "Не удалось определить профиль студента."
             )

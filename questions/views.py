@@ -9,6 +9,8 @@ from .serializers import (
     QuestionSerializer,
     AppealSerializer,
 )
+from django.shortcuts import get_object_or_404
+from rest_framework import generics, permissions
 
 
 class QuestionCategoryListView(generics.ListAPIView):
@@ -87,3 +89,63 @@ class AppealDetailView(generics.RetrieveAPIView):
             return queryset
 
         return queryset.filter(user=self.request.user)
+
+
+
+class AppealStatusUpdateView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    ALLOWED_TRANSITIONS = {
+        Appeal.Status.PENDING: {
+            Appeal.Status.IN_PROGRESS,
+            Appeal.Status.REJECTED,
+        },
+        Appeal.Status.IN_PROGRESS: {
+            Appeal.Status.RESOLVED,
+            Appeal.Status.REJECTED,
+        },
+        Appeal.Status.RESOLVED: set(),
+        Appeal.Status.REJECTED: set(),
+    }
+
+    def patch(self, request, pk):
+        appeal = get_object_or_404(
+            Appeal.objects.select_related(
+                "user", "question", "question__category"
+            ),
+            pk=pk,
+        )
+
+        new_status = request.data.get("status")
+
+        valid_statuses = Appeal.Status.values
+        if new_status not in valid_statuses:
+            return Response(
+                {
+                    "status": (
+                        "Недопустимый статус. Допустимые значения: "
+                        + ", ".join(valid_statuses)
+                    )
+                },
+                status=400,
+            )
+
+        allowed = self.ALLOWED_TRANSITIONS.get(
+            appeal.status, set()
+        )
+
+        if new_status not in allowed:
+            return Response(
+                {
+                    "status": (
+                        f"Переход из «{appeal.status}» "
+                        f"в «{new_status}» запрещён."
+                    )
+                },
+                status=400,
+            )
+
+        appeal.status = new_status
+        appeal.save(update_fields=["status", "updated_at"])
+
+        return Response(AppealSerializer(appeal).data)

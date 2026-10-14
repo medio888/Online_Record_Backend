@@ -1,4 +1,4 @@
-from datetime import date as date_cls
+from datetime import date as date_cls, timezone
 
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
@@ -48,6 +48,11 @@ class SlotsView(APIView):
             day = date_cls.fromisoformat(request.query_params.get("date", ""))
         except ValueError:
             return Response({"date": "Формат даты: ГГГГ-ММ-ДД."}, status=400)
+        if day < timezone.localdate():
+            return Response(
+                {"date": "Нельзя выбрать прошедшую дату."},
+                status=400,
+            )
 
         low, high = duration_limits(question.level)
         try:
