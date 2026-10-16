@@ -334,3 +334,62 @@ class AppealAPITests(APITestCase):
             self.appeal1.status,
             Appeal.Status.RESOLVED,
         )
+
+
+    def test_appeals_list_is_paginated(self):
+        for i in range(25):
+            Appeal.objects.create(
+                user=self.student1,
+                question=self.question,
+                message=f"Обращение для пагинации {i}",
+            )
+
+        self.client.force_authenticate(user=self.student1)
+
+        response = self.client.get(
+            reverse("appeal-list-create")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        # 25 новых обращений + appeal1 из setUpTestData.
+        self.assertEqual(response.data["count"], 26)
+        self.assertEqual(len(response.data["results"]), 20)
+        self.assertIsNotNone(response.data["next"])
+        self.assertIsNone(response.data["previous"])
+
+        second_page = self.client.get(
+            reverse("appeal-list-create"),
+            {"page": 2},
+        )
+
+        self.assertEqual(
+            second_page.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(len(second_page.data["results"]), 6)
+        self.assertIsNone(second_page.data["next"])
+
+    def test_appeals_page_size_can_be_changed(self):
+        for i in range(5):
+            Appeal.objects.create(
+                user=self.student1,
+                question=self.question,
+                message=f"Размер страницы {i}",
+            )
+
+        self.client.force_authenticate(user=self.student1)
+
+        response = self.client.get(
+            reverse("appeal-list-create"),
+            {"page_size": 3},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(len(response.data["results"]), 3)

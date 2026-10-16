@@ -595,3 +595,65 @@ class BookingSecurityAPITests(APITestCase):
                 status="active",
             ).exists()
         )
+
+    def test_slots_return_free_times_for_valid_date(self):
+        self.client.force_authenticate(user=self.user1)
+
+        response = self.client.get(
+            reverse("booking-slots"),
+            {
+                "question": self.question.pk,
+                "date": self.booking_date.isoformat(),
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            msg=str(response.data),
+        )
+        self.assertIn("10:00", response.data["slots"])
+
+    def test_cancelled_booking_frees_its_slot_in_slots_list(self):
+        booking = self.create_booking(self.student1, time(10, 0))
+
+        self.client.force_authenticate(user=self.user1)
+
+        params = {
+            "question": self.question.pk,
+            "date": self.booking_date.isoformat(),
+        }
+
+        busy_response = self.client.get(
+            reverse("booking-slots"),
+            params,
+        )
+
+        self.assertEqual(
+            busy_response.status_code,
+            status.HTTP_200_OK,
+            msg=str(busy_response.data),
+        )
+        self.assertNotIn("10:00", busy_response.data["slots"])
+
+        cancel_response = self.client.post(
+            reverse(
+                "booking-cancel",
+                kwargs={"pk": booking.pk},
+            )
+        )
+
+        self.assertEqual(
+            cancel_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, "cancelled")
+
+        free_response = self.client.get(
+            reverse("booking-slots"),
+            params,
+        )
+
+        self.assertIn("10:00", free_response.data["slots"])

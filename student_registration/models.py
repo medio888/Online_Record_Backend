@@ -67,7 +67,6 @@ class QueueTicket(models.Model):
     date = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=10, choices=STATUSES, default="waiting")
     created_at = models.DateTimeField(auto_now_add=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     called_at = models.DateTimeField(
         "Время вызова",
         null=True,

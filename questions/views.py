@@ -1,7 +1,9 @@
-
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from config.pagination import StandardPagination
 
 from .models import QuestionCategory, Question, Appeal
 from .serializers import (
@@ -9,8 +11,6 @@ from .serializers import (
     QuestionSerializer,
     AppealSerializer,
 )
-from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions
 
 
 class QuestionCategoryListView(generics.ListAPIView):
@@ -59,6 +59,7 @@ class QuestionLevelListView(APIView):
 class AppealListCreateView(generics.ListCreateAPIView):
     serializer_class = AppealSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         queryset = Appeal.objects.select_related(

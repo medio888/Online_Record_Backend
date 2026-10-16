@@ -153,3 +153,86 @@ class QueueSecurityTests(APITestCase):
             ).count(),
             1,
         )
+
+    def test_anonymous_user_cannot_join_queue(self):
+        """Неавторизованный пользователь не может встать в очередь."""
+        response = self.client.post(
+            self.queue_url,
+            {"direction": "it"},
+            format="json",
+        )
+
+        self.assertIn(
+            response.status_code,
+            [
+                status.HTTP_401_UNAUTHORIZED,
+                status.HTTP_403_FORBIDDEN,
+            ],
+        )
+        self.assertEqual(QueueTicket.objects.count(), 0)
+
+    def test_anonymous_user_cannot_call_next_ticket(self):
+        """Неавторизованный пользователь не может вызвать следующего."""
+        ticket = QueueTicket.objects.create(
+            student=self.student1,
+            direction="it",
+            number=1,
+            date=timezone.localdate(),
+            status="waiting",
+        )
+
+        response = self.client.post(
+            f"{self.call_next_url}?direction=it",
+        )
+
+        self.assertIn(
+            response.status_code,
+            [
+                status.HTTP_401_UNAUTHORIZED,
+                status.HTTP_403_FORBIDDEN,
+            ],
+        )
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, "waiting")
+
+    def test_anonymous_user_cannot_update_ticket(self):
+        """Неавторизованный пользователь не может менять талон."""
+        ticket = QueueTicket.objects.create(
+            student=self.student1,
+            direction="it",
+            number=1,
+            date=timezone.localdate(),
+            status="waiting",
+        )
+
+        response = self.client.patch(
+            reverse("queue-update", kwargs={"pk": ticket.pk}),
+            {"status": "cancelled"},
+            format="json",
+        )
+
+        self.assertIn(
+            response.status_code,
+            [
+                status.HTTP_401_UNAUTHORIZED,
+                status.HTTP_403_FORBIDDEN,
+            ],
+        )
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, "waiting")
+
+    def test_anonymous_user_cannot_open_reception_screen(self):
+        """Экран приёма доступен только сотрудникам."""
+        response = self.client.get(
+            f"{reverse('reception-screen')}?direction=it",
+        )
+
+        self.assertIn(
+            response.status_code,
+            [
+                status.HTTP_401_UNAUTHORIZED,
+                status.HTTP_403_FORBIDDEN,
+            ],
+        )

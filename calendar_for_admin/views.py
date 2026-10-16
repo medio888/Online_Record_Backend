@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ScheduleRule, Appointment
+from config.pagination import StandardPagination
 from .serializers import (
     ScheduleRuleSerializer,
     AppointmentSerializer,
@@ -142,6 +143,7 @@ class ScheduleRuleViewSet(viewsets.ModelViewSet):
 class AppointmentViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AppointmentSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         queryset = Appointment.objects.select_related(
