@@ -1,4 +1,6 @@
-from datetime import date as date_cls, timezone
+from datetime import date as date_cls
+
+from django.utils import timezone
 
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
