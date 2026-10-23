@@ -169,6 +169,10 @@ class QueueTicketSerializer(serializers.ModelSerializer):
         today = timezone.localdate()
 
         with transaction.atomic():
+            # Serialize number allocation across concurrent requests. Locking a
+            # stable Student row works even when no tickets exist for this queue yet.
+            Student.objects.select_for_update().order_by("pk").first()
+
             last = (
                 QueueTicket.objects.filter(
                     direction=student.direction,
