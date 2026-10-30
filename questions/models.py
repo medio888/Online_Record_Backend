@@ -29,6 +29,14 @@ class Question(models.Model):
         choices=Level.choices,
         default=Level.DEAN,
     )
+    responsible = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="responsible_questions",
+        null=True,
+        blank=True,
+        verbose_name="Ответственный сотрудник",
+    )
     is_active = models.BooleanField(default=True)
 
     def __str__(self):

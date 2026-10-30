@@ -12,13 +12,7 @@ class QuestionCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "text",
-        "category",
-        "level",
-        "is_active",
-    )
+    list_display = ("id", "text", "category", "level", "responsible", "is_active")
     list_filter = ("level", "category", "is_active")
     search_fields = ("text",)
 
