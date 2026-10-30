@@ -141,7 +141,7 @@ class BookingTicketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = [
-            "code", "student_name", "question_text", "official",
+            "id", "code", "student_name", "question_text", "official",
             "date", "time", "end_time", "duration", "ahead", "status", "created_at",
         ]
 

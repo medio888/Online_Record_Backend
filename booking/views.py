@@ -178,3 +178,28 @@ class BookingCancelView(APIView):
             "detail": "Запись отменена.",
             "booking": BookingTicketSerializer(booking).data,
         }, status=200)
+
+
+
+class BookingMyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            student = request.user.student_profile
+        except Student.DoesNotExist:
+            return Response(
+                {"detail": "У аккаунта нет профиля студента."},
+                status=403,
+            )
+
+        bookings = (
+            Booking.objects
+            .filter(student=student)
+            .select_related("student", "question")
+            .order_by("date", "time")
+        )
+
+        serializer = BookingTicketSerializer(bookings, many=True)
+        return Response(serializer.data)
+    
