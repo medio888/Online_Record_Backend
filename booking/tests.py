@@ -1,27 +1,45 @@
-﻿from datetime import time, timedelta
+﻿from concurrent.futures import ThreadPoolExecutor
+from datetime import time, timedelta
+from threading import Barrier
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.db import IntegrityError, close_old_connections, transaction
+from django.test import TestCase, TransactionTestCase
+from django.urls import reverse
 from django.utils import timezone
 
+from rest_framework import status
+from rest_framework.test import APIClient, APITestCase
+
+from calendar_for_admin.models import ScheduleRule
 from questions.models import Question, QuestionCategory
 from student_registration.models import Student
+
 from .models import Booking
 from .slots import free_slots
 
-from django.db import IntegrityError, transaction
-from django.test import TransactionTestCase
-
-from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
-
-from django.db import close_old_connections
-from rest_framework.test import APIClient
-from rest_framework import status
-from django.urls import reverse
-from rest_framework.test import APIClient, APITestCase
 
 User = get_user_model()
+
+
+def next_weekday():
+    day = timezone.localdate() + timedelta(days=1)
+
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+
+    return day
+
+
+def create_schedule_rule(employee, day):
+    return ScheduleRule.objects.create(
+        administrator=employee,
+        weekday=day.weekday(),
+        start_time=time(9, 0),
+        end_time=time(18, 0),
+        slot_duration_minutes=30,
+        is_active=True,
+    )
 
 
 class BookingTests(TestCase):
@@ -34,36 +52,42 @@ class BookingTests(TestCase):
 
         cls.student = Student.objects.create(
             user=cls.user,
-            first_name="РўРµСЃС‚",
-            last_name="РЎС‚СѓРґРµРЅС‚",
+            first_name="Тест",
+            last_name="Студент",
             phone="+996555123456",
             direction="it",
             course=1,
         )
 
+        cls.employee = User.objects.create_user(
+            username="booking_employee",
+            password="Test-Password-123!",
+        )
+
         cls.category = QuestionCategory.objects.create(
-            title="РўРµСЃС‚РѕРІР°СЏ РєР°С‚РµРіРѕСЂРёСЏ",
+            title="Тестовая категория",
         )
 
         cls.question = Question.objects.create(
             category=cls.category,
-            text="РўРµСЃС‚РѕРІС‹Р№ РІРѕРїСЂРѕСЃ",
+            text="Тестовый вопрос",
             level=Question.Level.DEAN,
             is_active=True,
+            responsible=cls.employee,
         )
 
     def setUp(self):
-        day = timezone.localdate() + timedelta(days=1)
-
-        while day.weekday() >= 5:
-            day += timedelta(days=1)
-
-        self.booking_date = day
+        self.booking_date = next_weekday()
+        self.rule = create_schedule_rule(
+            self.employee,
+            self.booking_date,
+        )
 
     def test_booking_can_be_created(self):
         booking = Booking.objects.create(
             student=self.student,
             question=self.question,
+            schedule_rule=self.rule,
             level=self.question.level,
             date=self.booking_date,
             time=time(10, 0),
@@ -80,6 +104,7 @@ class BookingTests(TestCase):
         Booking.objects.create(
             student=self.student,
             question=self.question,
+            schedule_rule=self.rule,
             level=self.question.level,
             date=self.booking_date,
             time=time(10, 0),
@@ -87,7 +112,7 @@ class BookingTests(TestCase):
         )
 
         slots = free_slots(
-            self.question.level,
+            self.question,
             self.booking_date,
             10,
         )
@@ -100,6 +125,7 @@ class BookingTests(TestCase):
         Booking.objects.create(
             student=self.student,
             question=self.question,
+            schedule_rule=self.rule,
             level=self.question.level,
             date=self.booking_date,
             time=time(10, 0),
@@ -108,7 +134,7 @@ class BookingTests(TestCase):
         )
 
         slots = free_slots(
-            self.question.level,
+            self.question,
             self.booking_date,
             10,
         )
@@ -116,19 +142,15 @@ class BookingTests(TestCase):
         self.assertIn(time(10, 0), slots)
 
 
-
 class BookingOverlapConstraintTests(TransactionTestCase):
     reset_sequences = True
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
 
     def setUp(self):
         self.user1 = User.objects.create_user(
             username="overlap_student_1",
             password="Test-Password-123!",
         )
+
         self.user2 = User.objects.create_user(
             username="overlap_student_2",
             password="Test-Password-456!",
@@ -136,39 +158,51 @@ class BookingOverlapConstraintTests(TransactionTestCase):
 
         self.student1 = Student.objects.create(
             user=self.user1,
-            first_name="РџРµСЂРІС‹Р№",
-            last_name="РЎС‚СѓРґРµРЅС‚",
+            first_name="Первый",
+            last_name="Студент",
             phone="+996555123457",
             direction="it",
             course=1,
         )
+
         self.student2 = Student.objects.create(
             user=self.user2,
-            first_name="Р’С‚РѕСЂРѕР№",
-            last_name="РЎС‚СѓРґРµРЅС‚",
+            first_name="Второй",
+            last_name="Студент",
             phone="+996555123458",
             direction="it",
             course=1,
         )
 
-        self.category = QuestionCategory.objects.create(
-            title="РџСЂРѕРІРµСЂРєР° РїРµСЂРµСЃРµС‡РµРЅРёР№",
-        )
-        self.question = Question.objects.create(
-            category=self.category,
-            text="РџСЂРѕРІРµСЂРєР° РёРЅС‚РµСЂРІР°Р»РѕРІ",
-            level=Question.Level.DEAN,
-            is_active=True,
+        self.employee = User.objects.create_user(
+            username="overlap_employee",
+            password="Test-Password-789!",
         )
 
-        self.booking_date = timezone.localdate() + timedelta(days=1)
-        while self.booking_date.weekday() >= 5:
-            self.booking_date += timedelta(days=1)
+        self.category = QuestionCategory.objects.create(
+            title="Проверка пересечений",
+        )
+
+        self.question = Question.objects.create(
+            category=self.category,
+            text="Проверка интервалов",
+            level=Question.Level.DEAN,
+            is_active=True,
+            responsible=self.employee,
+        )
+
+        self.booking_date = next_weekday()
+
+        self.rule = create_schedule_rule(
+            self.employee,
+            self.booking_date,
+        )
 
     def test_overlapping_active_bookings_are_rejected_by_database(self):
         Booking.objects.create(
             student=self.student1,
             question=self.question,
+            schedule_rule=self.rule,
             level=self.question.level,
             date=self.booking_date,
             time=time(10, 0),
@@ -180,6 +214,7 @@ class BookingOverlapConstraintTests(TransactionTestCase):
                 Booking.objects.create(
                     student=self.student2,
                     question=self.question,
+                    schedule_rule=self.rule,
                     level=self.question.level,
                     date=self.booking_date,
                     time=time(10, 15),
@@ -190,6 +225,7 @@ class BookingOverlapConstraintTests(TransactionTestCase):
         Booking.objects.create(
             student=self.student1,
             question=self.question,
+            schedule_rule=self.rule,
             level=self.question.level,
             date=self.booking_date,
             time=time(10, 0),
@@ -199,6 +235,7 @@ class BookingOverlapConstraintTests(TransactionTestCase):
         second = Booking.objects.create(
             student=self.student2,
             question=self.question,
+            schedule_rule=self.rule,
             level=self.question.level,
             date=self.booking_date,
             time=time(10, 10),
@@ -216,6 +253,7 @@ class ParallelBookingAPITests(TransactionTestCase):
             username="parallel_student_1",
             password="Test-Password-123!",
         )
+
         self.user2 = User.objects.create_user(
             username="parallel_student_2",
             password="Test-Password-456!",
@@ -223,40 +261,52 @@ class ParallelBookingAPITests(TransactionTestCase):
 
         self.student1 = Student.objects.create(
             user=self.user1,
-            first_name="РџРµСЂРІС‹Р№",
-            last_name="РЎС‚СѓРґРµРЅС‚",
-            phone="+996555123457",
+            first_name="Первый",
+            last_name="Студент",
+            phone="+996555123459",
             direction="it",
             course=1,
         )
+
         self.student2 = Student.objects.create(
             user=self.user2,
-            first_name="Р’С‚РѕСЂРѕР№",
-            last_name="РЎС‚СѓРґРµРЅС‚",
-            phone="+996555123458",
+            first_name="Второй",
+            last_name="Студент",
+            phone="+996555123460",
             direction="it",
             course=1,
+        )
+
+        self.employee = User.objects.create_user(
+            username="parallel_employee",
+            password="Test-Password-789!",
         )
 
         self.category = QuestionCategory.objects.create(
-            title="РџР°СЂР°Р»Р»РµР»СЊРЅРѕРµ Р±СЂРѕРЅРёСЂРѕРІР°РЅРёРµ",
-        )
-        self.question = Question.objects.create(
-            category=self.category,
-            text="РџСЂРѕРІРµСЂРєР° РїРµСЂРµСЃРµРєР°СЋС‰РёС…СЃСЏ Р·Р°РїРёСЃРµР№",
-            level=Question.Level.DEAN,
-            is_active=True,
+            title="Параллельное бронирование",
         )
 
-        self.booking_date = timezone.localdate() + timedelta(days=1)
-        while self.booking_date.weekday() >= 5:
-            self.booking_date += timedelta(days=1)
+        self.question = Question.objects.create(
+            category=self.category,
+            text="Проверка пересекающихся записей",
+            level=Question.Level.DEAN,
+            is_active=True,
+            responsible=self.employee,
+        )
+
+        self.booking_date = next_weekday()
+
+        self.rule = create_schedule_rule(
+            self.employee,
+            self.booking_date,
+        )
 
     def test_parallel_overlapping_requests_create_only_one_booking(self):
         barrier = Barrier(2)
 
         def send_booking(user, start_time):
             close_old_connections()
+
             try:
                 client = APIClient()
                 client.force_authenticate(user=user)
@@ -268,7 +318,6 @@ class ParallelBookingAPITests(TransactionTestCase):
                     "duration": 10,
                 }
 
-                # РћР±Р° РїРѕС‚РѕРєР° РЅР°С‡РёРЅР°СЋС‚ РѕС‚РїСЂР°РІРєСѓ РІРјРµСЃС‚Рµ.
                 barrier.wait(timeout=10)
 
                 response = client.post(
@@ -278,15 +327,21 @@ class ParallelBookingAPITests(TransactionTestCase):
                 )
 
                 return response.status_code
+
             finally:
                 close_old_connections()
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             future1 = executor.submit(
-                send_booking, self.user1, "10:00"
+                send_booking,
+                self.user1,
+                "10:00",
             )
+
             future2 = executor.submit(
-                send_booking, self.user2, "10:05"
+                send_booking,
+                self.user2,
+                "10:05",
             )
 
             results = [
@@ -297,12 +352,13 @@ class ParallelBookingAPITests(TransactionTestCase):
         self.assertEqual(
             results.count(status.HTTP_201_CREATED),
             1,
-            msg=f"РћР¶РёРґР°Р»СЃСЏ СЂРѕРІРЅРѕ РѕРґРёРЅ СѓСЃРїРµС€РЅС‹Р№ Р·Р°РїСЂРѕСЃ: {results}",
+            msg=f"Ожидался ровно один успешный запрос: {results}",
         )
+
         self.assertEqual(
             results.count(status.HTTP_400_BAD_REQUEST),
             1,
-            msg=f"Р’С‚РѕСЂРѕР№ Р·Р°РїСЂРѕСЃ РґРѕР»Р¶РµРЅ РїРѕР»СѓС‡РёС‚СЊ РѕС‚РєР°Р·: {results}",
+            msg=f"Второй запрос должен получить отказ: {results}",
         )
 
         self.assertEqual(
@@ -318,10 +374,12 @@ class BookingSecurityAPITests(APITestCase):
             username="security_student_1",
             password="Test-Password-123!",
         )
+
         cls.user2 = User.objects.create_user(
             username="security_student_2",
             password="Test-Password-456!",
         )
+
         cls.user_without_profile = User.objects.create_user(
             username="security_no_profile",
             password="Test-Password-789!",
@@ -335,6 +393,7 @@ class BookingSecurityAPITests(APITestCase):
             direction="it",
             course=1,
         )
+
         cls.student2 = Student.objects.create(
             user=cls.user2,
             first_name="Второй",
@@ -344,26 +403,36 @@ class BookingSecurityAPITests(APITestCase):
             course=1,
         )
 
+        cls.employee = User.objects.create_user(
+            username="security_employee",
+            password="Test-Password-789!",
+        )
+
         cls.category = QuestionCategory.objects.create(
             title="Проверка безопасности записи",
         )
+
         cls.question = Question.objects.create(
             category=cls.category,
             text="Проверка записи",
             level=Question.Level.DEAN,
             is_active=True,
+            responsible=cls.employee,
         )
 
     def setUp(self):
-        self.booking_date = timezone.localdate() + timedelta(days=1)
+        self.booking_date = next_weekday()
 
-        while self.booking_date.weekday() >= 5:
-            self.booking_date += timedelta(days=1)
+        self.rule = create_schedule_rule(
+            self.employee,
+            self.booking_date,
+        )
 
     def create_booking(self, student, booking_time=time(10, 0)):
         return Booking.objects.create(
             student=student,
             question=self.question,
+            schedule_rule=self.rule,
             level=self.question.level,
             date=self.booking_date,
             time=booking_time,
@@ -393,7 +462,7 @@ class BookingSecurityAPITests(APITestCase):
 
     def test_user_without_student_profile_cannot_book(self):
         self.client.force_authenticate(
-            user=self.user_without_profile
+            user=self.user_without_profile,
         )
 
         response = self.client.post(
@@ -423,7 +492,9 @@ class BookingSecurityAPITests(APITestCase):
     def test_student_cannot_create_second_active_booking(self):
         self.create_booking(self.student1)
 
-        self.client.force_authenticate(user=self.user1)
+        self.client.force_authenticate(
+            user=self.user1,
+        )
 
         response = self.client.post(
             reverse("booking-create"),
@@ -452,7 +523,9 @@ class BookingSecurityAPITests(APITestCase):
     def test_student_cannot_cancel_another_students_booking(self):
         booking = self.create_booking(self.student1)
 
-        self.client.force_authenticate(user=self.user2)
+        self.client.force_authenticate(
+            user=self.user2,
+        )
 
         response = self.client.post(
             reverse(
@@ -472,7 +545,9 @@ class BookingSecurityAPITests(APITestCase):
     def test_student_cannot_view_another_students_ticket(self):
         booking = self.create_booking(self.student1)
 
-        self.client.force_authenticate(user=self.user2)
+        self.client.force_authenticate(
+            user=self.user2,
+        )
 
         response = self.client.get(
             reverse(
@@ -489,7 +564,9 @@ class BookingSecurityAPITests(APITestCase):
     def test_student_can_cancel_own_booking(self):
         booking = self.create_booking(self.student1)
 
-        self.client.force_authenticate(user=self.user1)
+        self.client.force_authenticate(
+            user=self.user1,
+        )
 
         response = self.client.post(
             reverse(
@@ -509,7 +586,9 @@ class BookingSecurityAPITests(APITestCase):
     def test_cancelled_booking_can_be_booked_again(self):
         booking = self.create_booking(self.student1)
 
-        self.client.force_authenticate(user=self.user1)
+        self.client.force_authenticate(
+            user=self.user1,
+        )
 
         cancel_response = self.client.post(
             reverse(
@@ -548,9 +627,10 @@ class BookingSecurityAPITests(APITestCase):
             1,
         )
 
-
     def test_slots_reject_invalid_date_format(self):
-        self.client.force_authenticate(user=self.user1)
+        self.client.force_authenticate(
+            user=self.user1,
+        )
 
         response = self.client.get(
             reverse("booking-slots"),
@@ -570,7 +650,9 @@ class BookingSecurityAPITests(APITestCase):
     def test_booking_on_past_date_is_rejected(self):
         past_date = timezone.localdate() - timedelta(days=1)
 
-        self.client.force_authenticate(user=self.user1)
+        self.client.force_authenticate(
+            user=self.user1,
+        )
 
         response = self.client.post(
             reverse("booking-create"),

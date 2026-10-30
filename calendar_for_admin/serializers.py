@@ -1,13 +1,58 @@
 
 from datetime import datetime, timedelta
 
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.utils import timezone
+
 from rest_framework import serializers
 
+from booking.models import Booking
 from .models import ScheduleRule, Appointment
 
-from django.db import IntegrityError, transaction
-from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
+def has_booking_conflict(
+    administrator_id,
+    appointment_date,
+    start_time,
+    end_time,
+):
+    """Проверяет пересечение с активными записями студентов."""
+
+    requested_start = datetime.combine(
+        appointment_date,
+        start_time,
+    )
+    requested_end = datetime.combine(
+        appointment_date,
+        end_time,
+    )
+
+    bookings = Booking.objects.filter(
+        schedule_rule__administrator_id=administrator_id,
+        date=appointment_date,
+        status="active",
+    )
+
+    for booking in bookings:
+        booking_start = datetime.combine(
+            booking.date,
+            booking.time,
+        )
+        booking_end = booking_start + timedelta(
+            minutes=booking.duration
+        )
+
+        if (
+            booking_start < requested_end
+            and booking_end > requested_start
+        ):
+            return True
+
+    return False
 
 
 class ScheduleRuleSerializer(serializers.ModelSerializer):
@@ -81,16 +126,14 @@ class ScheduleRuleSerializer(serializers.ModelSerializer):
         if start_time >= end_time:
             raise serializers.ValidationError({
                 "end_time": (
-                    "Время окончания должно быть позже "
-                    "времени начала."
+                    "Время окончания должно быть позже времени начала."
                 )
             })
 
         if duration < 5 or duration > 240:
             raise serializers.ValidationError({
                 "slot_duration_minutes": (
-                    "Длительность сеанса должна быть "
-                    "от 5 до 240 минут."
+                    "Длительность сеанса должна быть от 5 до 240 минут."
                 )
             })
 
@@ -107,8 +150,7 @@ class ScheduleRuleSerializer(serializers.ModelSerializer):
         if start + timedelta(minutes=duration) > end:
             raise serializers.ValidationError({
                 "slot_duration_minutes": (
-                    "Время приёма должно вмещать хотя бы "
-                    "один полный сеанс."
+                    "Время приёма должно вмещать хотя бы один полный сеанс."
                 )
             })
 
@@ -144,11 +186,16 @@ class ScheduleRuleSerializer(serializers.ModelSerializer):
                 })
 
         if instance:
-            has_bookings = instance.appointments.filter(
+            has_appointments = instance.appointments.filter(
                 status="booked"
             ).exists()
 
-            if has_bookings:
+            has_bookings = Booking.objects.filter(
+                schedule_rule=instance,
+                status="active",
+            ).exists()
+
+            if has_appointments or has_bookings:
                 changed = (
                     weekday != instance.weekday
                     or start_time != instance.start_time
@@ -229,26 +276,20 @@ class AppointmentSerializer(serializers.ModelSerializer):
             )
 
         return value
-    
-    
+
     def create(self, validated_data):
         rule = validated_data["schedule_rule"]
         appointment_date = validated_data["appointment_date"]
         start_time = validated_data["start_time"]
         end_time = validated_data["end_time"]
 
-        User = get_user_model()
-
         try:
             with transaction.atomic():
-                # Все бронирования одного администратора
-                # проходят через одну блокировку.
                 administrator = (
                     User.objects.select_for_update()
                     .get(pk=rule.administrator_id)
                 )
 
-                # Повторно читаем правило после получения блокировки.
                 rule.refresh_from_db()
 
                 if not rule.is_active:
@@ -256,7 +297,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
                         "schedule_rule": "Это расписание неактивно."
                     })
 
-                # Проверяем пересечения повторно уже внутри транзакции.
                 conflicts = Appointment.objects.filter(
                     administrator_id=administrator.pk,
                     appointment_date=appointment_date,
@@ -268,8 +308,19 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 if conflicts.exists():
                     raise serializers.ValidationError({
                         "start_time": (
-                            "Это время уже занято. "
-                            "Выберите другой сеанс."
+                            "Это время уже занято. Выберите другой сеанс."
+                        )
+                    })
+
+                if has_booking_conflict(
+                    administrator.pk,
+                    appointment_date,
+                    start_time,
+                    end_time,
+                ):
+                    raise serializers.ValidationError({
+                        "start_time": (
+                            "Это время уже занято записью студента."
                         )
                     })
 
@@ -285,7 +336,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 )
             })
 
-    
     def validate(self, attrs):
         rule = attrs["schedule_rule"]
         appointment_date = attrs["appointment_date"]
@@ -343,8 +393,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
         if start_time not in valid_starts:
             raise serializers.ValidationError({
                 "start_time": (
-                    "Выбранное время не входит "
-                    "в доступные сеансы."
+                    "Выбранное время не входит в доступные сеансы."
                 )
             })
 
@@ -378,6 +427,18 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 "start_time": (
                     "Это время уже занято или пересекается "
                     "с другой записью администратора."
+                )
+            })
+
+        if has_booking_conflict(
+            rule.administrator_id,
+            appointment_date,
+            start_time,
+            requested_end.time(),
+        ):
+            raise serializers.ValidationError({
+                "start_time": (
+                    "Это время уже занято записью студента."
                 )
             })
 
