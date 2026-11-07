@@ -110,6 +110,26 @@ class BookingCreateView(generics.CreateAPIView):
 
 
 
+class BookingListView(generics.ListAPIView):
+    """Возвращает только записи текущего авторизованного студента."""
+
+    serializer_class = BookingTicketSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        try:
+            student = self.request.user.student_profile
+        except Student.DoesNotExist:
+            return Booking.objects.none()
+
+        return (
+            Booking.objects
+            .filter(student=student)
+            .select_related("student", "question")
+            .order_by("-date", "-time")
+        )
+
+
 class TicketView(generics.RetrieveAPIView):
     serializer_class = BookingTicketSerializer
     lookup_field = "code"
